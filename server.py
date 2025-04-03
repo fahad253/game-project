@@ -7,19 +7,16 @@ import os
 from aiohttp import web
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 
-async def index(request):
-    return web.FileResponse(os.path.join(BASE_DIR, 'frontend', 'index.html'))
-
-async def player_page(request):
-    return web.FileResponse(os.path.join(BASE_DIR, 'frontend', 'players.html'))
-
-async def manager_page(request):
-    return web.FileResponse(os.path.join(BASE_DIR, 'frontend', 'manager.html'))
+async def index(request): return web.FileResponse(os.path.join(FRONTEND_DIR, "index.html"))
+async def player_page(request): return web.FileResponse(os.path.join(FRONTEND_DIR, "players.html"))
+async def manager_page(request): return web.FileResponse(os.path.join(FRONTEND_DIR, "manager.html"))
 
 async def static_file(request):
     filename = request.match_info.get('filename')
-    return web.FileResponse(os.path.join(BASE_DIR, 'frontend', 'static', filename))
+    return web.FileResponse(os.path.join(FRONTEND_DIR, "static", filename))
+
 
 
 sio = socketio.AsyncServer(cors_allowed_origins='*')
