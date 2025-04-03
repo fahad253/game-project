@@ -4,6 +4,23 @@ import asyncio
 import random
 import time
 import os
+from aiohttp import web
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+async def index(request):
+    return web.FileResponse(os.path.join(BASE_DIR, 'frontend', 'index.html'))
+
+async def player_page(request):
+    return web.FileResponse(os.path.join(BASE_DIR, 'frontend', 'players.html'))
+
+async def manager_page(request):
+    return web.FileResponse(os.path.join(BASE_DIR, 'frontend', 'manager.html'))
+
+async def static_file(request):
+    filename = request.match_info.get('filename')
+    return web.FileResponse(os.path.join(BASE_DIR, 'frontend', 'static', filename))
+
 
 sio = socketio.AsyncServer(cors_allowed_origins='*')
 app = web.Application()
@@ -132,6 +149,7 @@ app.router.add_get('/', index)
 app.router.add_get('/player', player_page)
 app.router.add_get('/manager', manager_page)
 app.router.add_get('/static/{filename}', static_file)
+
 
 # --- Socket Events ---
 @sio.event
