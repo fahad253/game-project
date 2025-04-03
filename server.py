@@ -104,26 +104,53 @@ questions_bank = [
 
 # --- معالجين الصفحات الثابتة ---
 async def index(request): 
-    return web.FileResponse('./frontend/index.html')
+    try:
+        return web.FileResponse('./frontend/index.html')
+    except Exception as e:
+        logger.error(f"خطأ في تحميل صفحة index: {e}")
+        return web.Response(text="Error loading index page", status=500)
 
 async def player_page(request): 
-    return web.FileResponse('./frontend/players.html')
+    try:
+        return web.FileResponse('./frontend/players.html')
+    except Exception as e:
+        logger.error(f"خطأ في تحميل صفحة اللاعب: {e}")
+        return web.Response(text="Error loading player page", status=500)
 
 async def manager_page(request): 
-    return web.FileResponse('./frontend/manager.html')
+    try:
+        return web.FileResponse('./frontend/manager.html')
+    except Exception as e:
+        logger.error(f"خطأ في تحميل صفحة المدير: {e}")
+        return web.Response(text="Error loading manager page", status=500)
 
 async def static_file(request):
-    filename = request.match_info.get('filename')
-    filepath = os.path.join('./frontend/static', filename)
-    if os.path.exists(filepath):
-        return web.FileResponse(filepath)
-    else:
+    try:
+        filename = request.match_info.get('filename')
+        # التحقق من وجود الملف في مجلد static
+        filepath = os.path.join('./frontend/static', filename)
+        if os.path.exists(filepath):
+            return web.FileResponse(filepath)
+            
+        # إذا لم يكن الملف موجودًا في مجلد static، نتحقق من وجوده في المجلد الرئيسي للفرونت إند
+        filepath = os.path.join('./frontend', filename)
+        if os.path.exists(filepath):
+            return web.FileResponse(filepath)
+            
+        logger.warning(f"الملف غير موجود: {filename}")
         return web.Response(text="File not found", status=404)
+    except Exception as e:
+        logger.error(f"خطأ في تحميل الملف الثابت: {e}")
+        return web.Response(text=f"Error loading static file: {str(e)}", status=500)
 
 # --- إعداد المسارات ---
 app.router.add_get('/', index)
+app.router.add_get('/index.html', index)
 app.router.add_get('/player', player_page)
+app.router.add_get('/players.html', player_page)
 app.router.add_get('/manager', manager_page)
+app.router.add_get('/manager.html', manager_page)
+app.router.add_static('/static', './frontend/static')
 app.router.add_get('/static/{filename}', static_file)
 
 # --- وظائف المساعدة ---
@@ -867,5 +894,19 @@ if __name__ == '__main__':
     # ضمان وجود المجلدات المطلوبة
     os.makedirs('./frontend/static', exist_ok=True)
     
+    # طباعة محتويات مجلد frontend للتشخيص
+    try:
+        logger.info("محتويات مجلد frontend:")
+        for root, dirs, files in os.walk('./frontend'):
+            logger.info(f"المجلد: {root}")
+            for file in files:
+                logger.info(f"- ملف: {file}")
+            for dir in dirs:
+                logger.info(f"- مجلد: {dir}")
+    except Exception as e:
+        logger.error(f"خطأ في قراءة محتويات مجلد frontend: {e}")
+    
     # تشغيل السيرفر
-    web.run_app(app, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    port = int(os.environ.get('PORT', 10000))
+    logger.info(f"بدء تشغيل السيرفر على المنفذ {port}")
+    web.run_app(app, host='0.0.0.0', port=port)
