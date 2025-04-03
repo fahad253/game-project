@@ -256,6 +256,8 @@ async def disconnect(sid):
             frozen_players.remove(sid)
         if sid in player_answers:
             del player_answers[sid]
+        if sid in surprise_ready:
+            del surprise_ready[sid]
         
         # إبلاغ جميع اللاعبين بانقطاع اللاعب
         await sio.emit("player_disconnected", {"name": player_name})
@@ -263,6 +265,11 @@ async def disconnect(sid):
         # حذف اللاعب من المتصلين
         del connected_players[sid]
         await update_leaderboard()
+    
+    # إذا لم يبق أي لاعب، قم بإعادة تعيين اللعبة
+    if len(connected_players) == 0 and game_in_progress:
+        logger.info("👋 جميع اللاعبين انقطعوا - إعادة تعيين اللعبة")
+        await reset_game()
 
 @sio.event
 async def register_name(sid, name):
@@ -584,6 +591,47 @@ async def set_final_loser(sid, data):
     await sio.emit("final_loser_selected", {"loser": loser})
     logger.info(f"😢 تم تحديد الخاسر النهائي: {loser}")
 
+async def auto_clean_system_after_delay(delay_seconds):
+    """انتظار مدة محددة ثم تنظيف النظام بالكامل"""
+    try:
+        await asyncio.sleep(delay_seconds)
+        logger.info("🧹 بدء تنظيف النظام بالكامل...")
+        
+        # إرسال إشعار للاعبين
+        await sio.emit("system_reset", {"message": "انتهت المسابقة، سيتم إعادة تشغيل النظام"})
+        
+        # تنظيف جميع متغيرات اللعبة
+        global connected_players, ready_players, frozen_players, punishments_list, used_punishments
+        global player_answers, question_number, final_punishment_data, surprise_ready, final_losers
+        global game_in_progress, current_round_data
+        
+        # إعادة تعيين كل المتغيرات
+        connected_players = {}
+        ready_players = set()
+        frozen_players = set()
+        punishments_list = []
+        used_punishments = []
+        player_answers = {}
+        question_number = 0
+        final_punishment_data = {}
+        surprise_ready = {}
+        final_losers = []
+        game_in_progress = False
+        current_round_data = None
+        
+        # حذف ملف حالة اللعبة إن وجد
+        if os.path.exists("game_state.json"):
+            try:
+                os.remove("game_state.json")
+                logger.info("✅ تم حذف ملف حالة اللعبة")
+            except Exception as e:
+                logger.error(f"❌ خطأ في حذف ملف حالة اللعبة: {e}")
+        
+        logger.info("✅ تم تنظيف النظام بالكامل")
+        
+    except Exception as e:
+        logger.error(f"❌ حدث خطأ أثناء تنظيف النظام: {e}")
+
 @sio.event
 async def final_apply_punishment(sid, data):
     """تطبيق عقوبة على خاسر محدد"""
@@ -593,6 +641,7 @@ async def final_apply_punishment(sid, data):
         
     loser = data.get("loser")
     punishment = data.get("punishment")
+    is_last = data.get("is_last", False)  # هل هذه آخر عقوبة؟
     
     if not loser or not punishment:
         return
@@ -611,6 +660,11 @@ async def final_apply_punishment(sid, data):
     })
     
     logger.info(f"⚠️ تم تطبيق العقوبة على {loser}: {punishment}")
+    
+    # إذا كانت هذه آخر عقوبة، ابدأ عملية التنظيف الآلي بعد 30 ثانية
+    if is_last:
+        logger.info("🏁 تم استلام آخر عقوبة - سيتم تنظيف النظام بعد 30 ثانية")
+        asyncio.create_task(auto_clean_system_after_delay(30))
 
 @sio.event
 async def apply_all_punishments(sid, data):
@@ -643,6 +697,66 @@ async def apply_all_punishments(sid, data):
     # إرسال تأكيد تطبيق جميع العقوبات
     await sio.emit("all_punishments_applied")
     logger.info("✅ تم تطبيق جميع العقوبات")
+    
+    # بعد الانتهاء من تطبيق جميع العقوبات، انتظر 30 ثانية ثم قم بتنظيف الذاكرة
+    logger.info("🕐 انتظار 30 ثانية قبل إعادة تعيين النظام...")
+    asyncio.create_task(auto_clean_system_after_delay(30))
+
+@sio.event
+async def game_completely_finished(sid):
+    """إشعار من المدير بانتهاء اللعبة تماماً بما فيها تنفيذ العقوبات"""
+    if sid in connected_players:
+        admin_name = connected_players[sid]['name']
+        logger.info(f"🏁 تم استلام إشعار انتهاء اللعبة الكامل من المدير: {admin_name}")
+        await clean_game_for_next_round()
+        await sio.emit("game_cleaned_for_next_round")
+
+async def clean_game_for_next_round():
+    """تنظيف اللعبة وإعدادها للجولة القادمة مع الاحتفاظ بأسماء اللاعبين فقط"""
+    global question_number, frozen_players, player_answers, final_punishment_data
+    global final_losers, game_in_progress, surprise_ready, used_punishments, current_round_data
+    global ready_players
+    
+    logger.info("🧹 تنظيف اللعبة للجولة القادمة")
+    
+    # حفظ قائمة باللاعبين المتصلين فقط
+    current_players = {}
+    for sid, info in connected_players.items():
+        current_players[sid] = {"name": info['name'], "score": 0}
+    
+    # إعادة تعيين جميع متغيرات اللعبة
+    question_number = 0
+    ready_players = set()  # إعادة تعيين قائمة اللاعبين الجاهزين
+    frozen_players = set()
+    player_answers = {}
+    final_punishment_data = {}
+    final_losers = []
+    game_in_progress = False
+    surprise_ready = {}
+    used_punishments = []
+    current_round_data = None
+    
+    # استعادة أسماء اللاعبين فقط
+    connected_players = current_players
+    
+    # حذف ملف حالة اللعبة إن وجد
+    if os.path.exists("game_state.json"):
+        try:
+            os.remove("game_state.json")
+            logger.info("✅ تم حذف ملف حالة اللعبة")
+        except Exception as e:
+            logger.error(f"❌ خطأ في حذف ملف حالة اللعبة: {e}")
+    
+    # إخطار جميع اللاعبين بإعادة تهيئة اللعبة
+    await sio.emit("game_reset_for_next_round", {
+        "message": "تم الانتهاء من اللعبة. يرجى الاستعداد للجولة القادمة!"
+    })
+    
+    # تحديث لوحة المتصدرين
+    await update_leaderboard()
+    
+    logger.info(f"✅ تم تنظيف اللعبة للجولة القادمة. عدد اللاعبين المتبقين: {len(connected_players)}")
+    return True
 
 @sio.event
 async def spin_flash_punishments(sid):
@@ -878,14 +992,35 @@ async def start_elimination_game():
 # --- تشغيل التطبيق ---
 async def on_startup(app):
     """يتم تنفيذها عند بدء تشغيل التطبيق"""
+    global connected_players, ready_players, frozen_players, punishments_list, question_number
+    global final_punishment_data, final_losers, game_in_progress, player_answers, surprise_ready
+    global used_punishments, current_round_data
+    
     logger.info("🚀 بدء تشغيل السيرفر...")
     
-    # محاولة استعادة حالة اللعبة
-    restored = await load_game_state()
-    if restored:
-        logger.info("✅ تم استعادة حالة اللعبة السابقة")
-    else:
-        logger.info("🆕 بدء من حالة جديدة")
+    # إعادة تعيين جميع متغيرات اللعبة عند بدء التشغيل
+    connected_players = {}
+    ready_players = set()
+    frozen_players = set()
+    punishments_list = []
+    used_punishments = []
+    player_answers = {}
+    question_number = 0
+    final_punishment_data = {}
+    final_losers = []
+    game_in_progress = False
+    surprise_ready = {}
+    current_round_data = None
+    
+    # حذف ملف حالة اللعبة القديم إن وجد
+    if os.path.exists("game_state.json"):
+        try:
+            os.remove("game_state.json")
+            logger.info("✅ تم حذف ملف حالة اللعبة القديم")
+        except Exception as e:
+            logger.error(f"❌ خطأ في حذف ملف حالة اللعبة: {e}")
+    
+    logger.info("✅ تم إعادة تعيين حالة اللعبة - جاهز للبدء")
 
 # إضافة دالة بدء التشغيل
 app.on_startup.append(on_startup)
