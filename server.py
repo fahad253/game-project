@@ -120,12 +120,13 @@ questions_bank = [
 ]
 
 # --- Static File Handlers ---
-async def index(request): return web.FileResponse('./frontend/index.html')
-async def player_page(request): return web.FileResponse('./frontend/players.html')
-async def manager_page(request): return web.FileResponse('./frontend/manager.html')
+async def index(request): return web.FileResponse('./static/index.html')
+async def player_page(request): return web.FileResponse('./static/players.html')
+async def manager_page(request): return web.FileResponse('./static/manager.html')
 async def static_file(request):
     filename = request.match_info.get('filename')
-    return web.FileResponse(os.path.join('./frontend', filename))
+    return web.FileResponse(os.path.join('./static', filename))
+
 
 app.router.add_get('/', index)
 app.router.add_get('/player', player_page)
