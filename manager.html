@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <title>لوحة المدير - لعبة التحدي</title>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: 'Cairo', sans-serif;
+      background: linear-gradient(to right, #141e30, #243b55);
+      color: white;
+      text-align: center;
+      padding: 40px;
+    }
+    h1 { font-size: 3rem; color: #00ffcc; }
+    .section { margin-top: 30px; }
+    button {
+      padding: 15px 25px;
+      margin: 10px;
+      font-size: 1.2rem;
+      background-color: #007bff;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      color: white;
+    }
+    .button-grid {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      max-width: 800px;
+      margin: auto;
+    }
+    .hidden { display: none; }
+    .selected { background-color: #00cc88 !important; }
+    #countdown, #round, #winner {
+      font-size: 1.8rem;
+      margin-top: 20px;
+    }
+    #chart-container {
+      width: 100%;
+      max-width: 900px;
+      margin: 30px auto;
+    }
+    #finalResult {
+      font-size: 1.6rem;
+      color: gold;
+      margin-top: 30px;
+      display: none;
+      white-space: pre-line;
+      text-align: right;
+      line-height: 2.2rem;
+      background: rgba(255, 255, 255, 0.1);
+      padding: 15px;
+      border-radius: 12px;
+      width: 60%;
+      margin-inline: auto;
+    }
+    #crownAnimation {
+      font-size: 3rem;
+      color: gold;
+      font-weight: bold;
+      animation: pulse 1.5s infinite;
+      margin-top: 40px;
+    }
+    @keyframes pulse {
+      0% { transform: scale(1); text-shadow: 0 0 10px gold; }
+      50% { transform: scale(1.3); text-shadow: 0 0 20px yellow; }
+      100% { transform: scale(1); text-shadow: 0 0 10px gold; }
+    }
+    #final-controls {
+      display: none;
+      margin-top: 40px;
+    }
+    #final-controls button {
+      background-color: #6a1b9a;
+    }
+    #losers-panel {
+      margin-top: 30px;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 15px;
+      padding: 20px;
+      max-width: 800px;
+      margin-left: auto;
+      margin-right: auto;
+      display: none;
+    }
+    .loser-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(255, 255, 255, 0.1);
+      margin: 10px 0;
+      padding: 12px;
+      border-radius: 8px;
+    }
+    .loser-name {
+      font-weight: bold;
+      margin-right: 10px;
+    }
+    .loser-punishment {
+      flex-grow: 1;
+      margin: 0 15px;
+      padding: 8px;
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 6px;
+      text-align: center;
+    }
+    .loser-buttons button {
+      padding: 8px 12px;
+      font-size: 0.9rem;
+      margin: 0 5px;
+    }
+    .punishment-spinner {
+      animation: flash-colors 0.3s infinite alternate;
+    }
+    @keyframes flash-colors {
+      from { background-color: rgba(106, 27, 154, 0.2); }
+      to { background-color: rgba(106, 27, 154, 0.5); }
+    }
+    .punishment-final {
+      background: rgba(76, 175, 80, 0.3) !important;
+    }
+    .loser-applied {
+      opacity: 0.6;
+    }
+    .batch-actions {
+      margin-top: 20px;
+    }
+    .batch-actions button {
+      background-color: #f57c00;
+    }
+  </style>
+</head>
+<body>
+  <!-- الأصوات -->
+  <audio id="bgMusic" loop><source src="/static/manager.mp3" type="audio/mpeg"></audio>
+  <audio id="startSound"><source src="/static/start.mp3" type="audio/mpeg"></audio>
+  <audio id="roundSound"><source src="/static/jola.mp3" type="audio/mpeg"></audio>
+  <audio id="alarmSound"><source src="/static/Alarm.mp3" type="audio/mpeg"></audio>
+  <audio id="crownSound"><source src="/static/foozzz.mp3" type="audio/mpeg"></audio>
+
+  <h1>🎉 مرحبًا بكم في لعبة التحدي الجماعي!</h1>
+
+  <!-- الشاشات -->
+  <div id="welcomeScreen" class="section">
+    <button onclick="startGameSetup()">🚀 ابدأ اللعبة</button>
+  </div>
+
+  <div id="playerCountScreen" class="section hidden">
+    <h2>🧍 اختر عدد اللاعبين:</h2>
+    <div id="playerButtons" class="button-grid"></div>
+  </div>
+
+  <div id="punishmentsScreen" class="section hidden">
+    <h2>🎯 اختر الأحكام (بحد أقصى عدد اللاعبين - 1)</h2>
+    <div id="punishmentButtons" class="button-grid"></div>
+    <div id="punishmentNote" style="color: gold; margin-top: 10px;"></div>
+    <button id="startRegistrationBtn" class="hidden" onclick="goToDashboard()">✅ ابدأ التسجيل</button>
+  </div>
+
+  <div id="dashboardScreen" class="section hidden">
+    <div id="countdown"></div>
+    <div id="round"></div>
+    <div id="chart-container"><canvas id="progressChart"></canvas></div>
+    <div id="winner"></div>
+    <div id="crownAnimation" class="hidden"></div>
+  </div>
+
+  <div id="final-controls" class="section hidden">
+    <h2>🎬 تحكم الفائز النهائي</h2>
+    <button onclick="replayCrown()">🔁 إعادة التتويج</button>
+    <button onclick="toggleLosersPanel()">👁 إدارة جميع الخاسرين</button>
+    <button onclick="chooseLoserManually()">🎯 إضافة لاعب للخسارة</button>
+    <button onclick="spinAllPunishments()">⚡ تدوير جميع الأحكام</button>
+    <button onclick="applyAllPunishments()">✅ تطبيق جميع الأحكام</button>
+  </div>
+
+  <!-- لوحة إدارة الخاسرين الجديدة -->
+  <div id="losers-panel">
+    <h3>🎯 إدارة عقوبات الخاسرين</h3>
+    <div id="losers-container"></div>
+    <div class="batch-actions">
+      <button onclick="spinAllPunishments()">🎲 تدوير كل العقوبات</button>
+      <button onclick="applyAllPunishments()">✅ تطبيق كل العقوبات</button>
+    </div>
+  </div>
+
+  <div id="finalResult"></div>
+
+  <script>
+    const socket = io();
+    let selectedPlayerCount = 0;
+    let selectedPunishments = [];
+    let usedPunishments = [];
+    let chart;
+    const chartData = {
+      labels: [],
+      datasets: [{ label: 'النقاط', data: [], backgroundColor: [] }]
+    };
+    
+    // تخزين بيانات الخاسرين والعقوبات
+    let losersData = [];
+
+    const bgMusic = document.getElementById("bgMusic");
+    const startSound = document.getElementById("startSound");
+    const roundSound = document.getElementById("roundSound");
+    const alarmSound = document.getElementById("alarmSound");
+    const crownSound = document.getElementById("crownSound");
+
+    window.addEventListener("click", () => {
+      bgMusic.muted = false;
+      bgMusic.volume = 0.5;
+      bgMusic.play().catch(() => {});
+    }, { once: true });
+
+    function startGameSetup() {
+      bgMusic.play().catch(() => {});
+      goToPlayerCount();
+    }
+
+    function goToPlayerCount() {
+      document.getElementById("welcomeScreen").classList.add("hidden");
+      document.getElementById("playerCountScreen").classList.remove("hidden");
+      const container = document.getElementById("playerButtons");
+      container.innerHTML = "";
+      for (let i = 2; i <= 30; i++) {
+        const btn = document.createElement("button");
+        btn.textContent = i;
+        btn.onclick = () => { selectedPlayerCount = i; goToPunishments(); };
+        container.appendChild(btn);
+      }
+    }
+
+    function goToPunishments() {
+      document.getElementById("playerCountScreen").classList.add("hidden");
+      document.getElementById("punishmentsScreen").classList.remove("hidden");
+      const container = document.getElementById("punishmentButtons");
+      container.innerHTML = "";
+      selectedPunishments = [];
+      usedPunishments = [];
+      
+      // قائمة مخصصة من العقوبات
+      const punishmentsList = [
+  "قم بتقليد صوت حيوان لمدة 10 ثوانٍ",
+  "تحدث بلهجة خليجية مبالغ فيها لمدة 3 دقائق",
+  "قم بالرقص على أغنية 'شوف عيني شوف' لمدة 30 ثانية",
+  "قف على قدم واحدة لمدة 30 ثانية",
+  "احكِ نكتة مضحكة",
+  "ارقص على أغنية 'هز هز هز' مع تحريك الكتفين فقط",
+  "تحدث بشكل عكسي لمدة دقيقة",
+  "قم بتمثيل مشهد الصراخ الشهير من فيلم 'هوم ألون'",
+  "قم بـ 10 تمارين ضغط مع التصفيق بين كل عدة",
+  "تظاهر بأنك مذيع نشرة أخبار وقم بتغطية آخر أخبار الحفلة",
+  "اشرب كوب ماء بدون استخدام يديك",
+  "صفق 20 مرة متتالية",
+  "قلّد صوت شخصية سبونج بوب مع تعبيرات وجه مطابقة لمدة دقيقة",
+  "اذكر 5 أشياء تحبها في 10 ثوانٍ",
+  "امشِ كالبطة لمدة 15 ثانية",
+  "امدح الشخص الذي على يمينك بطريقة مبالغ فيها",
+  "غنّي مقطع من أغنية 'بعدو' على طريقة الأوبرا",
+  "اعترف بأكثر موقف محرج حدث لك في المدرسة",
+  "قلد طريقة مشي ثلاثة أشخاص من الحاضرين",
+  "ارسم شيئًا بعينيك مغمضتين",
+  "اذكر 3 أفلام في 5 ثوانٍ",
+  "اصنع نظارة من البصل وارتديها لمدة دقيقة",
+  "تحدث بصوت منخفض جدًا لمدة 30 ثانية",
+  "التقط صورة سيلفي مضحكة مع شخصين من الحاضرين",
+  "قل ثلاثة أشياء بلهجة مصرية",
+  "حاول أن تلمس أنفك بلسانك",
+  "تصرف كأنك قطة لمدة دقيقة كاملة، بما في ذلك المواء وتنظيف نفسك",
+  "قف لمدة 30 ثانية وتصرف كتمثال",
+  "قم بعمل تعبيرات وجه مضحكة لمدة 10 ثوانٍ",
+  "اترك الآخرين يرسمون على ظهرك بالقلم"
+];
+
+      punishmentsList.forEach(pun => {
+        const btn = document.createElement("button");
+        btn.textContent = pun;
+        btn.classList.add("punishment-button");
+        btn.onclick = () => selectPunishment(btn, pun);
+        container.appendChild(btn);
+      });
+    }
+
+    function selectPunishment(btn, pun) {
+      if (selectedPunishments.includes(pun)) {
+        selectedPunishments = selectedPunishments.filter(p => p !== pun);
+        btn.classList.remove("selected");
+      } else {
+        if (selectedPunishments.length < selectedPlayerCount - 1) {
+          selectedPunishments.push(pun);
+          btn.classList.add("selected");
+        }
+      }
+      const note = document.getElementById("punishmentNote");
+      if (selectedPunishments.length >= selectedPlayerCount - 1) {
+        note.textContent = "✅ تم اختيار الحد الأقصى من الأحكام. يمكنك بدء التسجيل.";
+        document.getElementById("startRegistrationBtn").classList.remove("hidden");
+      } else {
+        note.textContent = `اختر حتى ${selectedPlayerCount - 1} أحكام. المتبقي: ${selectedPlayerCount - 1 - selectedPunishments.length}`;
+        document.getElementById("startRegistrationBtn").classList.add("hidden");
+      }
+    }
+
+    function goToDashboard() {
+      document.getElementById("punishmentsScreen").classList.add("hidden");
+      document.getElementById("dashboardScreen").classList.remove("hidden");
+      socket.emit("selected_punishments", selectedPunishments);
+      let seconds = 30;
+      const countdownEl = document.getElementById("countdown");
+      const countdown = setInterval(() => {
+        countdownEl.textContent = `⌛️ تبقى ${seconds} ثانية للتسجيل...`;
+        seconds--;
+        if (seconds < 0) {
+          clearInterval(countdown);
+          countdownEl.textContent = "✅ انتهى وقت التسجيل!";
+          bgMusic.pause();
+          startSound.play().catch(() => {});
+          socket.emit("start_game_signal");
+        }
+      }, 1000);
+    }
+
+    // إظهار وإخفاء لوحة الخاسرين
+    function toggleLosersPanel() {
+      const panel = document.getElementById("losers-panel");
+      if (panel.style.display === "none" || panel.style.display === "") {
+        panel.style.display = "block";
+        updateLosersPanel();
+      } else {
+        panel.style.display = "none";
+      }
+    }
+
+    // تحديث لوحة الخاسرين
+    function updateLosersPanel() {
+      const container = document.getElementById("losers-container");
+      container.innerHTML = "";
+      
+      if (losersData.length === 0) {
+        container.innerHTML = "<p>لا يوجد لاعبين خاسرين بعد</p>";
+        return;
+      }
+      
+      losersData.forEach((loser, index) => {
+        const row = document.createElement("div");
+        row.className = `loser-row ${loser.applied ? 'loser-applied' : ''}`;
+        row.id = `loser-row-${index}`;
+        
+        // اسم اللاعب
+        const nameSpan = document.createElement("div");
+        nameSpan.className = "loser-name";
+        nameSpan.textContent = loser.name;
+        
+        // العقوبة
+        const punishmentSpan = document.createElement("div");
+        punishmentSpan.className = loser.punishment ? 
+          `loser-punishment ${loser.isSpinning ? 'punishment-spinner' : 'punishment-final'}` : 
+          "loser-punishment";
+        punishmentSpan.textContent = loser.punishment || "لم يتم تحديد عقوبة بعد";
+        punishmentSpan.id = `punishment-${index}`;
+        
+        // أزرار التحكم
+        const buttons = document.createElement("div");
+        buttons.className = "loser-buttons";
+        
+        // زر التدوير
+        const spinBtn = document.createElement("button");
+        spinBtn.textContent = "🎲 تدوير";
+        spinBtn.disabled = loser.applied;
+        spinBtn.onclick = () => spinPunishment(index);
+        
+        // زر التطبيق
+        const applyBtn = document.createElement("button");
+        applyBtn.textContent = "✓ تطبيق";
+        applyBtn.disabled = !loser.punishment || loser.applied;
+        applyBtn.onclick = () => applyPunishment(index);
+        
+        buttons.appendChild(spinBtn);
+        buttons.appendChild(applyBtn);
+        
+        row.appendChild(nameSpan);
+        row.appendChild(punishmentSpan);
+        row.appendChild(buttons);
+        
+        container.appendChild(row);
+      });
+    }
+
+    // تدوير عقوبة للاعب معين
+    function spinPunishment(loserIndex) {
+      if (!losersData[loserIndex]) return;
+      
+      // تحديث حالة التدوير
+      losersData[loserIndex].isSpinning = true;
+      
+      // الحصول على العقوبات المتبقية
+      let remaining = selectedPunishments.filter(p => !usedPunishments.includes(p));
+      if (remaining.length === 0) {
+        remaining = [...selectedPunishments]; // إعادة استخدام جميع العقوبات
+        usedPunishments = [];
+      }
+      
+      // بدء التدوير
+      let i = 0;
+      const maxSpins = 20;
+      const interval = setInterval(() => {
+        if (!document.getElementById(`punishment-${loserIndex}`)) {
+          clearInterval(interval);
+          return;
+        }
+        
+        const randomPunishment = remaining[Math.floor(Math.random() * remaining.length)];
+        document.getElementById(`punishment-${loserIndex}`).textContent = randomPunishment;
+        
+        i++;
+        if (i >= maxSpins) {
+          clearInterval(interval);
+          
+          // تخزين العقوبة النهائية
+          const finalPunishment = document.getElementById(`punishment-${loserIndex}`).textContent;
+          losersData[loserIndex].punishment = finalPunishment;
+          losersData[loserIndex].isSpinning = false;
+          usedPunishments.push(finalPunishment);
+          
+          // تحديث واجهة المستخدم
+          const punishmentElement = document.getElementById(`punishment-${loserIndex}`);
+          if (punishmentElement) {
+            punishmentElement.classList.remove("punishment-spinner");
+            punishmentElement.classList.add("punishment-final");
+          }
+          
+          updateLosersPanel();
+        }
+      }, 100);
+    }
+
+    // تدوير العقوبات لجميع اللاعبين
+    function spinAllPunishments() {
+      losersData.forEach((loser, index) => {
+        if (!loser.applied) {
+          setTimeout(() => spinPunishment(index), index * 400);
+        }
+      });
+    }
+
+    // تطبيق عقوبة على لاعب معين
+    function applyPunishment(loserIndex) {
+      const loser = losersData[loserIndex];
+      if (!loser || !loser.punishment || loser.applied) return;
+      
+      // إرسال العقوبة للخادم
+      socket.emit("set_final_loser", { loser: loser.name });
+      socket.emit("final_apply_punishment", { 
+        loser: loser.name, 
+        punishment: loser.punishment 
+      });
+      
+      // تحديث العرض
+      loser.applied = true;
+      document.getElementById(`finalResult`).style.display = "block";
+      document.getElementById(`finalResult`).textContent += `\n🎯 ${loser.name}: ${loser.punishment}`;
+      
+      updateLosersPanel();
+    }
+
+    // تطبيق جميع العقوبات
+    function applyAllPunishments() {
+      const unappliedWithPunishment = losersData.filter(
+        loser => loser.punishment && !loser.applied
+      );
+      
+      if (unappliedWithPunishment.length === 0) {
+        alert("لا توجد أحكام جديدة للتطبيق!");
+        return;
+      }
+      
+      // إعداد البيانات للخادم
+      const allPunishmentsToApply = unappliedWithPunishment.map(loser => ({
+        loser: loser.name,
+        punishment: loser.punishment
+      }));
+      
+      // إرسال جميع العقوبات للخادم
+      socket.emit("apply_all_punishments", { punishments: allPunishmentsToApply });
+      
+      // تحديث العرض
+      let resultText = "";
+      unappliedWithPunishment.forEach(loser => {
+        loser.applied = true;
+        resultText += `\n🎯 ${loser.name}: ${loser.punishment}`;
+      });
+      
+      document.getElementById("finalResult").style.display = "block";
+      document.getElementById("finalResult").textContent += resultText;
+      
+      updateLosersPanel();
+    }
+
+    socket.on("question_number", (num) => {
+      document.getElementById("round").textContent = `🎯 الجولة رقم ${num}`;
+    });
+
+    socket.on("start_countdown", ({ duration }) => {
+      roundSound.play().catch(() => {});
+    });
+
+    socket.on("play_round_sound", () => {
+      roundSound.play().catch(() => {});
+    });
+
+    socket.on("show_surprise_box", () => {
+      alarmSound.play().catch(() => {});
+    });
+
+    socket.on("play_alarm_sound", () => {
+      alarmSound.play().catch(() => {});
+    });
+
+    socket.on("new_player", ({ name }) => {
+      chartData.labels.push(name);
+      chartData.datasets[0].data.push(0);
+      chartData.datasets[0].backgroundColor.push("#00ffcc");
+      updateChart();
+    });
+
+    socket.on("leaderboard_chart", (players) => {
+      players.forEach(p => {
+        const index = chartData.labels.indexOf(p.name);
+        if (index !== -1) {
+          chartData.datasets[0].data[index] = p.score;
+        }
+      });
+      updateChart();
+    });
+
+    socket.on("final_winner", (name) => {
+      document.getElementById("winner").textContent = `🏆 الفائز النهائي هو: ${name}`;
+      document.getElementById("final-controls").classList.remove("hidden");
+    });
+
+    socket.on("final_punishment", ({ loser, punishment }) => {
+      // تحديث قائمة العقوبات المطبقة
+      const existingLoser = losersData.find(l => l.name === loser);
+      if (existingLoser) {
+        existingLoser.punishment = punishment;
+        existingLoser.applied = true;
+      }
+      
+      updateLosersPanel();
+    });
+
+    socket.on("final_loser_selected", ({ loser }) => {
+      // إضافة اللاعب للقائمة إذا لم يكن موجوداً
+      if (!losersData.find(l => l.name === loser)) {
+        losersData.push({
+          name: loser,
+          punishment: null,
+          isSpinning: false,
+          applied: false
+        });
+      }
+      
+      updateLosersPanel();
+    });
+
+    socket.on("crown_winner", ({ name }) => {
+      const crown = document.getElementById("crownAnimation");
+      crown.textContent = `✨✨ ${name} ✨✨`;
+      crown.classList.remove("hidden");
+      crownSound.play().catch(() => {});
+    });
+
+    function replayCrown() {
+      socket.emit("replay_crown");
+    }
+
+    function chooseLoserManually() {
+      const loser = prompt("📌 اكتب اسم اللاعب الخاسر:");
+      if (loser) {
+        // إضافة اللاعب إلى قائمة الخاسرين
+        if (!losersData.find(l => l.name === loser)) {
+          losersData.push({
+            name: loser,
+            punishment: null,
+            isSpinning: false,
+            applied: false
+          });
+        }
+        
+        socket.emit("set_final_loser", { loser });
+        updateLosersPanel();
+        
+        // عرض لوحة الخاسرين
+        document.getElementById("losers-panel").style.display = "block";
+      }
+    }
+
+    function updateChart() {
+      if (!chart) {
+        const ctx = document.getElementById("progressChart").getContext("2d");
+        chart = new Chart(ctx, {
+          type: 'bar',
+          data: chartData,
+          options: {
+            responsive: true,
+            plugins: {
+              legend: { display: false },
+              title: { display: true, text: 'تقدم اللاعبين' }
+            },
+            animation: { duration: 1000, easing: 'easeOutBounce' },
+            scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+          }
+        });
+      } else {
+        chart.update();
+      }
+    }
+  </script>
+</body>
+</html>
